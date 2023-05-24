@@ -39,7 +39,7 @@ Function SendPacketRandom {
 }
 
 $sequence = [int]0
-$serialPort = New-Object System.IO.Ports.SerialPort COM1,9600
+$serialPort = New-Object System.IO.Ports.SerialPort COM1, 9600
 $serialPort.Open()
 
 while ($true)
