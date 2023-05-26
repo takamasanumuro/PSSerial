@@ -1,11 +1,13 @@
 
 class MeasurementSystem
 {
+    [MavlinkParser] $parser
     [float[]] $currents
     [float] $voltage
 
-    MeasurementSystem()
+    MeasurementSystem([MavlinkParser] $parser)
     {
+        $this.parser = $parser
         $this.currents = [float[]]@(0x00, 0x00, 0x00)
         $this.voltage = [float]0x00
     }
@@ -47,6 +49,7 @@ class MeasurementSystem
         $outBuffer += [BitConverter]::GetBytes($this.voltage)
         return $outBuffer        
     }
+  
 }
 
 class ControlSystem
@@ -277,7 +280,8 @@ class MavlinkMessage
 
 #Class that accepts payload byte arrays and parses them into the appropriate mavlink message byte array
 class MavlinkParser
-{
+{  
+    [System.Collections.Queue] $queue
     [byte] $startMarker
     [byte] $sequence
     [byte] $localSystemID
@@ -285,16 +289,16 @@ class MavlinkParser
 
     $mavlinkMessageInfos = @(
     [MavlinkMessageInfo]::new(0, "HEARTBEAT", 50, 9),
-    [MavlinkMessageInfo]::new(170, "PUMP_STATE", 176, 1),
-    [MavlinkMessageInfo]::new(171, "PUMP_STATE_INDIVIDUAL", 248, 4),
-    [MavlinkMessageInfo]::new(172, "INSTRUMENTATION", 71, 16),
-    [MavlinkMessageInfo]::new(173, "MOTOR_CONTROL_SIGNALS", 23, 8),
-    [MavlinkMessageInfo]::new(174, "GPS_GPRMC_SENTENCE", 30, 80),
-    [MavlinkMessageInfo]::new(175, "GPS_LAT_LNG", 248, 8)
+    [MavlinkMessageInfo]::new(170, "CONTROL_SYSTEM", 202, 9),
+    [MavlinkMessageInfo]::new(171, "INSTRUMENTATION", 179, 16),
+    [MavlinkMessageInfo]::new(172, "TEMPERATURES", 60, 8),
+    [MavlinkMessageInfo]::new(176, "GPS_GPRMC_SENTENCE", 30, 80),
+    [MavlinkMessageInfo]::new(177, "GPS_GPGGA_SENTENCE", 86, 80)
     )
 
     MavlinkParser()
     {
+        $this.queue = [System.Collections.Queue]::new()
         $this.startMarker = [byte]0xFE #MavlinkV1.0
         $this.sequence = [byte]0x00
         $this.localSystemID = [byte]0x01
@@ -357,11 +361,11 @@ class MavlinkParser
 
 class Boat
 {
-    [MeasurementSystem] $MeasurementSystem
-    [ControlSystem] $ControlSystem
-    [NavigationSystem] $NavigationSystem
-    [MavlinkParser] $MavlinkParser
-
+    $MavlinkParser = [MavlinkParser]::new()
+    $MeasurementSystem = [MeasurementSystem]::new()
+    $ControlSystem = [ControlSystem]::new()
+    $NavigationSystem = [NavigationSystem]::new()
+    
 }
 
 Function PrintMavlinkMessage {
@@ -421,8 +425,8 @@ Function Invoke-Mavlink {
   $port.DiscardInBuffer()
   $port.DiscardOutBuffer()
   $mavlinkParser = [MavlinkParser]::new()
-  $measurer = [MeasurementSystem]::new(@(0x10, 0x08, 0x40), 0x30) #ERRORHERE CHECK CONSTRUCTOR TOMORROW!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  $message = [byte[]]$mavlinkParser.EncodeMessage(172, $measurer.ToByteArray())
+  $measurer = [MeasurementSystem]::new(@(0x10, 0x08, 0x40), 0x30) 
+  $message = [byte[]]$mavlinkParser.EncodeMessage(171, $measurer.ToByteArray())
   while ($true)
   {
     $port.Write([byte[]]$message, 0, $message.Length)
@@ -448,4 +452,4 @@ Function Invoke-Mavlink {
   $port.Close()
 }
 
-Invoke-Mavlink "COM1"
+Invoke-Mavlink "COM3"
