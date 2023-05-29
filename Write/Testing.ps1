@@ -263,7 +263,8 @@ class NavigationSystem
         $this.mavParser = [MavlinkParser]::new()
         $this.latitude = [int]0x00
         $this.longitude = [int]0x00
-        $this.gprmcSentence = [System.Text.Encoding]::ASCII.GetBytes('$GPRMC,003448.085,A,2251.408,S,04305.730,W,022.8,033.9,290523,000.0,W*73')
+        $this.gprmcSentence = [System.Text.Encoding]::ASCII.GetBytes('$GPRMC,003448.085,A,2285.702,S,04309.557,W,022.8,033.9,290523,000.0,W*73')
+        
 
         foreach ($info in $this.mavParser.mavlinkMessageInfos)
         {
