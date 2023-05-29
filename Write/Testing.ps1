@@ -84,11 +84,18 @@ class MavlinkParser
             $messageBuffer += $payload
             $checksum = $this.AccumulateChecksum($messageBuffer, $messageInfo.crcExtra)
             $messageBuffer += [BitConverter]::GetBytes($checksum)
-            $this.sequence++ #Increment sequence number every packet built
+            if ($this.sequence -eq 0xFF)
+            {
+                $this.sequence = 0x00
+            }
+            else
+            {
+                $this.sequence++
+            }
             return $messageBuffer
         }
         catch {
-            Write-Host "An error occurred"
+            Write-Host $_.Exception.Message >> "log.txt"
             return $null
         }            
     }  
@@ -442,7 +449,7 @@ try
             [byte[]] $measurementMessage = $measurementSystem.ToMavlinkMessage()
             if ($null -eq $measurementMessage) 
             {
-                "Measurement error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+                "Measurement NULL error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
                 return
             }
             $queue.Enqueue($measurementMessage)
@@ -464,7 +471,7 @@ try
             [byte[]] $controlMessage = $controlSystem.ToMavlinkMessage()
             if ($null -eq $controlMessage) 
             {
-                "Control error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+                "Control NULL error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
                 return
             }
             $queue.Enqueue($controlMessage)
@@ -482,7 +489,8 @@ try
     $timerNav.Interval = 3000
     Register-ObjectEvent -InputObject $timerNav -EventName Elapsed -SourceIdentifier MavlinkTimerNav -Action{
         try
-        {
+        {         
+            
             [byte[]] $navMessage = $navSystem.ToMavlinkMessage()
             if ($null -eq $navMessage) 
             {
@@ -510,7 +518,7 @@ try
         if ($queue.Count -gt 0)
         {
             [byte[]] $message = $queue.Dequeue()
-            if ($null -eq $message) { Write-Host "`nNull message from queue" ;continue }     
+            if ($null -eq $message) { Write-Host "`nNull message from queue"; continue }     
             $port.Write([byte[]]$message, 0, $message.Length)            
             foreach ($byte in $message)
             {
