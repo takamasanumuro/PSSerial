@@ -436,43 +436,68 @@ try
     $timerMeasurement = [System.Timers.Timer]::new()
     $timerMeasurement.Interval = 1000
     Register-ObjectEvent -InputObject $timerMeasurement -EventName Elapsed -SourceIdentifier MavlinkTimerMeasurement -Action{
-        $measurementSystem.SetRandom(0.0, 5.0)
-        [byte[]] $measurementMessage = $measurementSystem.ToMavlinkMessage()
-        if ($null -eq $measurementMessage) 
+        try
         {
-            "Measurement error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
-            return
+            $measurementSystem.SetRandom(0.0, 5.0)
+            [byte[]] $measurementMessage = $measurementSystem.ToMavlinkMessage()
+            if ($null -eq $measurementMessage) 
+            {
+                "Measurement error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+                return
+            }
+            $queue.Enqueue($measurementMessage)
         }
-        $queue.Enqueue($measurementMessage)
+        catch
+        {
+            "Measurement CATCH error $((Get-Date).ToString("HH:mm:ss")) [$($_.Exception.Message)]" >> "log.txt"
+        }
+        
     }
 
     $controlSystem = [ControlSystem]::new()
     $timerControl = [System.Timers.Timer]::new()
     $timerControl.Interval = 2000
     Register-ObjectEvent -InputObject $timerControl -EventName Elapsed -SourceIdentifier MavlinkTimerControl -Action{
-        $controlSystem.SetRandom(0.0, 5.0)
-        [byte[]] $controlMessage = $controlSystem.ToMavlinkMessage()
-        if ($null -eq $controlMessage) 
+        try
         {
-            "Control error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+            $controlSystem.SetRandom(0.0, 5.0)
+            [byte[]] $controlMessage = $controlSystem.ToMavlinkMessage()
+            if ($null -eq $controlMessage) 
+            {
+                "Control error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+                return
+            }
+            $queue.Enqueue($controlMessage)
+        }
+        catch
+        {
+            "Control CATCH error $((Get-Date).ToString("HH:mm:ss")) $($_.Exception.Message)]"  >> "log.txt"
             return
         }
-        $queue.Enqueue($controlMessage)
+        
     }
 
     $navSystem = [NavigationSystem]::new()
     $timerNav = [System.Timers.Timer]::new()
     $timerNav.Interval = 3000
     Register-ObjectEvent -InputObject $timerNav -EventName Elapsed -SourceIdentifier MavlinkTimerNav -Action{
-        [byte[]] $navMessage = $navSystem.ToMavlinkMessage()
-        if ($null -eq $navMessage) 
+        try
         {
-            "Navigation error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+            [byte[]] $navMessage = $navSystem.ToMavlinkMessage()
+            if ($null -eq $navMessage) 
+            {
+                "Navigation NULL error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+                return
+            }
+            $queue.Enqueue($navMessage)
+        }
+        catch
+        {
+            "Navigation CATCH error $((Get-Date).ToString("HH:mm:ss")) [$($_.Exception.Message)]"  >> "log.txt"
             return
         }
-        $queue.Enqueue($navMessage)
     }
-
+       
     $timerMeasurement.Start()
     $timerControl.Start()
     $timerNav.Start()
@@ -506,6 +531,8 @@ finally
     $timerMeasurement.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerMeasurement
     $timerControl.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerControl
     $timerNav.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerNav
-
+    $timerMeasurement.Dispose()
+    $timerControl.Dispose()
+    $timerNav.Dispose()
 }
 
