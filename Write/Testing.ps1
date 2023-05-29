@@ -251,24 +251,46 @@ class ControlSystem
 
 class NavigationSystem
 {
+    [MavlinkParser] $mavParser
     #Check whether to use int or float
     [int] $latitude
     [int] $longitude
     [byte[]] $gprmcSentence
+    [byte] $messageID
 
     NavigationSystem()
     {
+        $this.mavParser = [MavlinkParser]::new()
         $this.latitude = [int]0x00
         $this.longitude = [int]0x00
-        $this.gprmcSentence = [byte[]]@(0x00)*82
+        $this.gprmcSentence = [System.Text.Encoding]::ASCII.GetBytes('$GPRMC,003448.085,A,2251.408,S,04305.730,W,022.8,033.9,290523,000.0,W*73')
+
+        foreach ($info in $this.mavParser.mavlinkMessageInfos)
+        {
+            if ($info.messageName -eq "GPS_GPRMC_SENTENCE")
+            {
+                $this.messageID = $info.messageID
+                break
+            }
+        }
     }
 
     #If initial state is desired, use this constructor
-    NavigationSystem([byte[]] $gprmcSentence, [int] $latitude, [int] $longitude)
+    NavigationSystem([int] $latitude, [int] $longitude, [byte[]] $gprmcSentence)
     {
-        $this.gprmcSentence = $gprmcSentence
+        $this.mavParser = [MavlinkParser]::new()
         $this.latitude = $latitude
         $this.longitude = $longitude
+        $this.gprmcSentence = $gprmcSentence
+
+        foreach ($info in $this.mavParser.mavlinkMessageInfos)
+        {
+            if ($info.messageName -eq "GPS_GPRMC_SENTENCE")
+            {
+                $this.messageID = $info.messageID
+                break
+            }
+        }
     }
 
     [byte[]] GetGPRMCSentence()
@@ -276,14 +298,19 @@ class NavigationSystem
         return $this.gprmcSentence
     }
 
-    [int] GetLatitude()
+    [byte[]] GetCoordinates()
     {
-        return $this.latitude
+        $outBuffer = [byte[]]@()
+        $outBuffer += [BitConverter]::GetBytes($this.latitude)
+        $outBuffer += [BitConverter]::GetBytes($this.longitude)
+        return $outBuffer
     }
-
-    [int] GetLongitude()
+   
+    [byte[]] GetMessage()
     {
-        return $this.longitude
+        $outBuffer = $this.GetCoordinates()
+        $outBuffer += $this.gprmcSentence
+        return $outBuffer
     }
 
     [void] SetGPRMCSentence([byte[]] $gprmcSentence)
@@ -301,16 +328,13 @@ class NavigationSystem
         $this.longitude = $longitude
     }
 
-    [byte[]] GetCoordinates()
+    [byte[]] ToMavlinkMessage()
     {
-        $outBuffer = [byte[]]@()
-        $outBuffer += [BitConverter]::GetBytes($this.latitude)
-        $outBuffer += [BitConverter]::GetBytes($this.longitude)
-        return $outBuffer
+        $outBuffer = $this.GetMessage()
+        return $this.mavParser.EncodeMessage($this.messageID, $outBuffer)
     }
 
 }
-
 
 class MeasurementSystem
 {
@@ -405,35 +429,82 @@ class MeasurementSystem
 
 try
 {
-    $queue = [System.Collections.Queue]::new()
+    $queue = [System.Collections.Queue]::Synchronized([System.Collections.Queue]::new())
+
     $measurementSystem = [MeasurementSystem]::new()
-    $measurementSystem.SetRandom(0.0, 5.0)
-    $queue.Enqueue($measurementSystem.ToMavlinkMessage())
-    
-    $controlSystem = [ControlSystem]::new()
-    $controlSystem.SetRandom(0.0, 5.0)
-    $queue.Enqueue($controlSystem.ToMavlinkMessage())
-    
-    $port = [System.IO.Ports.SerialPort]::new("COM3", 9600)
-    $port.Open()
-    Write-Host "Queue length: $($queue.Count)"
-    foreach ($message in $queue)
-    {
-        $port.Write($message, 0, $message.Length);
-        Write-Host "Packet"
-        foreach ($byte in $message)
+    $timerMeasurement = [System.Timers.Timer]::new()
+    $timerMeasurement.Interval = 1000
+    Register-ObjectEvent -InputObject $timerMeasurement -EventName Elapsed -SourceIdentifier MavlinkTimerMeasurement -Action{
+        $measurementSystem.SetRandom(0.0, 5.0)
+        [byte[]] $measurementMessage = $measurementSystem.ToMavlinkMessage()
+        if ($null -eq $measurementMessage) 
         {
-            Write-Host $byte.ToString("X2")
+            "Measurement error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+            return
+        }
+        $queue.Enqueue($measurementMessage)
+    }
+
+    $controlSystem = [ControlSystem]::new()
+    $timerControl = [System.Timers.Timer]::new()
+    $timerControl.Interval = 2000
+    Register-ObjectEvent -InputObject $timerControl -EventName Elapsed -SourceIdentifier MavlinkTimerControl -Action{
+        $controlSystem.SetRandom(0.0, 5.0)
+        [byte[]] $controlMessage = $controlSystem.ToMavlinkMessage()
+        if ($null -eq $controlMessage) 
+        {
+            "Control error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+            return
+        }
+        $queue.Enqueue($controlMessage)
+    }
+
+    $navSystem = [NavigationSystem]::new()
+    $timerNav = [System.Timers.Timer]::new()
+    $timerNav.Interval = 3000
+    Register-ObjectEvent -InputObject $timerNav -EventName Elapsed -SourceIdentifier MavlinkTimerNav -Action{
+        [byte[]] $navMessage = $navSystem.ToMavlinkMessage()
+        if ($null -eq $navMessage) 
+        {
+            "Navigation error $((Get-Date).ToString("HH:mm:ss"))" >> "log.txt"
+            return
+        }
+        $queue.Enqueue($navMessage)
+    }
+
+    $timerMeasurement.Start()
+    $timerControl.Start()
+    $timerNav.Start()
+
+    $port = [System.IO.Ports.SerialPort]::new("COM1", 9600)
+    $port.Open()
+
+    while ($true)
+    {
+        if ($queue.Count -gt 0)
+        {
+            [byte[]] $message = $queue.Dequeue()
+            if ($null -eq $message) { Write-Host "`nNull message from queue" ;continue }     
+            $port.Write([byte[]]$message, 0, $message.Length)            
+            foreach ($byte in $message)
+            {
+                Write-Host "$($byte.ToString("X2"))" -NoNewline
+            }
+            Write-Host "`r" -NoNewline
         }
     }
-        
+            
 }
 catch
 {
-    Write-Host $_.Exception.Message
+    #Write-Host $_.Exception.Message
 }
 finally
 {
     $port.Close()
+    $timerMeasurement.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerMeasurement
+    $timerControl.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerControl
+    $timerNav.Stop(); Unregister-Event -SourceIdentifier MavlinkTimerNav
+
 }
 
