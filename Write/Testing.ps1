@@ -526,6 +526,15 @@ try
             }
             Write-Host "`r" -NoNewline
         }
+
+        if ([Console]::KeyAvailable)
+        {
+            $key = [Console]::ReadKey($true)
+            if ($key.Key -eq "Escape")
+            {
+                break
+            }
+        }
     }
             
 }
