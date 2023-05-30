@@ -531,7 +531,7 @@ try
 }
 catch
 {
-    #Write-Host $_.Exception.Message
+    Write-Host $_.Exception.Message -ForegroundColor Red
 }
 finally
 {
