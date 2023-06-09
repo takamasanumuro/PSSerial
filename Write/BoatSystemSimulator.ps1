@@ -510,7 +510,7 @@ try
     $timerControl.Start()
     $timerNav.Start()
 
-    $port = [System.IO.Ports.SerialPort]::new("COM1", 9600)
+    $port = [System.IO.Ports.SerialPort]::new("COM2", 9600)
     $port.Open()
 
     while ($true)
